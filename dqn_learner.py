@@ -17,31 +17,14 @@
 
 import copy
 from acme.tf import savers as tf2_savers
-import jax
-from acme.jax import utils
-import numpy as np
-from acme import core
 from acme import datasets
-from acme import specs
-from acme import types
-from acme.adders import reverb as adders
-from acme.tf import variable_utils as tf2_variable_utils
-from acme.agents import agent
-from acme.agents.tf import actors
 from acme.agents.tf.dqn import learning
-from acme.tf import networks
-from acme.utils import counting
 from acme.utils import loggers
-from acme.adders import reverb as reverb_adders
 import reverb
 import sonnet as snt
 import tensorflow as tf
-import trfl
-import tree
 from utils import create_variables
 from acme import types
-from acme import specs
-from typing import Optional
 
 tf.config.run_functions_eagerly(True)
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -55,92 +38,6 @@ if gpus:
     except RuntimeError as e:
         # Memory growth must be set before GPUs have been initialized
         print(e)
-
-
-class simple_dataset:
-    def __init__(self, client, address, table_name, batch_size, environment_spec):
-        shapes, dtypes = _spec_to_shapes_and_dtypes(
-            True,
-            environment_spec,
-            extra_spec=None,
-            sequence_length=None,
-            convert_zero_size_to_none=False,
-            using_deprecated_adder=False)
-
-        self.dataset = reverb.ReplayDataset(address, table_name, dtypes, shapes, batch_size)
-        self.dataset = self.dataset.batch(batch_size, drop_remainder=True)
-        self.dataset = iter(self.dataset)
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        while True:
-            sample = next(self.dataset)
-            return sample
-
-
-def _spec_to_shapes_and_dtypes(transition_adder: bool,
-                               environment_spec: specs.EnvironmentSpec,
-                               extra_spec: Optional[types.NestedSpec],
-                               sequence_length: Optional[int],
-                               convert_zero_size_to_none: bool,
-                               using_deprecated_adder: bool):
-    """Creates the shapes and dtypes needed to describe the Reverb dataset.
-  This takes a `environment_spec`, `extra_spec`, and additional information and
-  returns a tuple (shapes, dtypes) that describe the data contained in Reverb.
-  Args:
-    transition_adder: A boolean, describing if a `TransitionAdder` was used to
-      add data.
-    environment_spec: A `specs.EnvironmentSpec`, describing the shapes and
-      dtypes of the data produced by the environment (and the action).
-    extra_spec: A nested structure of objects with a `.shape` and `.dtype`
-      property. This describes any additional data the Actor adds into Reverb.
-    sequence_length: An optional integer for how long the added sequences are,
-      only used with `SequenceAdder`.
-    convert_zero_size_to_none: If True, then all shape dimensions that are 0 are
-      converted to None. A None dimension is only set at runtime.
-    using_deprecated_adder: True if the adder used to generate the data is
-      from acme/adders/reverb/deprecated.
-  Returns:
-    A tuple (dtypes, shapes) that describes the data that has been added into
-    Reverb.
-  """
-    # The *transition* adder is special in that it also adds an arrival state.
-    if transition_adder:
-        # Use the environment spec but convert it to a plain tuple.
-        adder_spec = tuple(environment_spec) + (environment_spec.observations,)
-        # Any 'extra' data that is passed to the adder is put on the end.
-        if extra_spec:
-            adder_spec += (extra_spec,)
-    elif using_deprecated_adder and deprecated_base is not None:
-        adder_spec = deprecated_base.Step(
-            observation=environment_spec.observations,
-            action=environment_spec.actions,
-            reward=environment_spec.rewards,
-            discount=environment_spec.discounts,
-            extras=() if not extra_spec else extra_spec)
-    else:
-        adder_spec = adders.Step(
-            observation=environment_spec.observations,
-            action=environment_spec.actions,
-            reward=environment_spec.rewards,
-            discount=environment_spec.discounts,
-            start_of_episode=specs.Array(shape=(), dtype=bool),
-            extras=() if not extra_spec else extra_spec)
-
-    # Extract the shapes and dtypes from these specs.
-    get_dtype = lambda x: tf.as_dtype(x.dtype)
-    get_shape = lambda x: tf.TensorShape(x.shape)
-    if sequence_length:
-        get_shape = lambda x: tf.TensorShape([sequence_length, *x.shape])
-
-    if convert_zero_size_to_none:
-        # TODO(b/143692455): Consider making this default behaviour.
-        get_shape = lambda x: tf.TensorShape([s if s else None for s in x.shape])
-    shapes = tree.map_structure(get_shape, adder_spec)
-    dtypes = tree.map_structure(get_dtype, adder_spec)
-    return shapes, dtypes
 
 
 class DQN_learner(object):
@@ -192,32 +89,6 @@ class DQN_learner(object):
       replay_table_name: string indicating what name to give the replay table.
     """
 
-        # Create a replay server to add data to. This uses no limiter behavior in
-        # order to allow the Agent interface to handle it.
-        # shapes, dtypes = _spec_to_shapes_and_dtypes(
-        #     True,
-        #     environment_spec,
-        #     extra_spec=None,
-        #     sequence_length=None,
-        #     convert_zero_size_to_none=False,
-        #     using_deprecated_adder=False)
-        # signature = {
-        #     'actions':
-        #         tf.TensorSpec(*environment_spec.actions., ACTION_SPEC.dtype),
-        #     'observations':
-        #         tf.TensorSpec([3, *OBSERVATION_SPEC.shape],
-        #                       OBSERVATION_SPEC.dtype),
-        # }
-        # replay_table = reverb.Table(
-        #     name=replay_table_name,
-        #     sampler=reverb.selectors.Uniform(),
-        #     remover=reverb.selectors.Fifo(),
-        #     max_size=max_replay_size,
-        #     max_times_sampled=replay_table_max_times_sampled,
-        #     rate_limiter=reverb.rate_limiters.MinSize(min_replay_size),
-        #     signature=reverb_adders.NStepTransitionAdder.signature(
-        #         environment_spec)
-        # )
         transition_spec = types.Transition(
             observation=tf.TensorSpec(shape=(observation_spec,),
                               dtype=tf.float32),
@@ -258,27 +129,6 @@ class DQN_learner(object):
                                       remover=reverb.selectors.Fifo(),
                                       max_size=1,
                                       rate_limiter=reverb.rate_limiters.MinSize(1))
-        # model_table = reverb.Table(
-        #     name=model_table_name,
-        #     sampler=reverb.selectors.Lifo(),
-        #     remover=reverb.selectors.Fifo(),
-        #     max_size=1,
-        #     rate_limiter=reverb.rate_limiters.MinSize(1))
-        #
-        # broadcaster_table = reverb.Table(
-        #   name=broadcaster_table_name,
-        #   sampler=reverb.selectors.Fifo(),
-        #   remover=reverb.selectors.Fifo(),
-        #   max_size=1,
-        #   max_times_sampled=1,
-        #   rate_limiter=reverb.rate_limiters.MinSize(1))
-
-        # shutdown_table = reverb.Table(name=shutdown_table_name,
-        #                               sampler=reverb.selectors.Lifo(),
-        #                               remover=reverb.selectors.Fifo(),
-        #                               max_size=1,
-        #                               rate_limiter=reverb.rate_limiters.MinSize(1))
-
         self._server = reverb.Server([replay_table, model_table, shutdown_table, broadcaster_table], port=port)
 
         # The adder is used to insert observations into replay.

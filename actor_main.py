@@ -1,64 +1,26 @@
-# import pytorch_actors
-# from absl import app
-# from absl import flags
 import traceback
 from acme import core
-# from acme import datasets
-# from acme import specs
-from acme import specs
-# from acme import types
-# from acme import types
-# from acme import wrappers
 from acme.adders import reverb as adders
-# from acme.agents import agent
-# from acme.agents.tf import actors
 from acme.agents.tf import actors
-# from acme.agents.tf import d4pg
-# from acme.agents.tf.d4pg import learning
-# from acme.tf import networks
-from acme.tf import networks
 import tree
 from acme.tf import utils as tf2_utils
 from acme.tf import variable_utils as tf2_variable_utils
 from grid2op import make
 from grid2op.Action import TopologyChangeAndDispatchAction
 from grid2op.Reward import GameplayReward, L2RPNReward, CombinedScaledReward
-from grid2op.gym_compat import GymEnv, BoxGymObsSpace, BoxGymActSpace
-from l2rpn_baselines.PPO_SB3 import remove_non_usable_attr
-
-# from acme.utils import counting
-# from acme.utils import loggers
-# from acme.utils import loggers
-from d4pg_args import parser
-# from dm_control import suite
-# from multiprocessing import Process
-# from typing import Mapping, Sequence
+from dqn_args import parser
 from utils import  get_actor_sigma, DQNnetwork, create_variables,convert_obs
-# import acme
-# import argparse
-# import copy
-# import dm_env
-# import gc
-# import gym
-# import numpy as np
 import numpy as np
 import pickle
 import pytorch_actors
 import reverb
-import reverb
 import sonnet as snt
-import sonnet as snt
-import sys
-import sys
 import sys
 import tensorflow as tf
-import time
 import time
 import torch
 import trfl
 import zlib
-import zstd
-from acme import wrappers
 torch.set_num_threads(1)
 cpus = tf.config.list_physical_devices("CPU")
 tf.config.set_visible_devices(cpus)
@@ -130,7 +92,7 @@ def actor_main(actor_id, args):
 
     model_sizes = tuple([int(x) for x in args["model_str"].split(",")])
 
-    # Create network / env
+    # 创建一个电网环境
     environment_grid = make(args["taskstr"],
                             action_class=TopologyChangeAndDispatchAction,
                             reward_class=CombinedScaledReward)
@@ -152,30 +114,8 @@ def actor_main(actor_id, args):
     cr.initialize(environment_grid)
     # Set reward range to something managable
     cr.set_range(-1.0, 1.0)
-    # environment_gym = GymEnv(environment_grid)
-    # glop_obs = environment_grid.reset()
-    # environment_gym.observation_space.close()
-    # obs_attr_to_keep = ["day_of_week", "hour_of_day", "minute_of_hour", "prod_p", "prod_v", "load_p", "load_q",
-    #                     "actual_dispatch", "target_dispatch", "topo_vect", "time_before_cooldown_line",
-    #                     "time_before_cooldown_sub", "rho", "timestep_overflow", "line_status",
-    #                     "storage_power", "storage_charge"]
-    # environment_gym.observation_space = BoxGymObsSpace(environment_gym.init_env.observation_space,
-    #                                                attr_to_keep=obs_attr_to_keep
-    #                                                )
-    # environment_gym.action_space.close()
-    # default_act_attr_to_keep = ["redispatch", "curtail", "set_storage"]
-    # act_attr_to_keep = remove_non_usable_attr(environment_grid, default_act_attr_to_keep)
-    # environment_gym.action_space = BoxGymActSpace(environment_gym.init_env.action_space,
-    #                                           attr_to_keep=act_attr_to_keep
-    #                                           )
-    # # myenv=MyEnv(environment,environment_grid)
-    # environment = wrappers.GymWrapper(environment_gym)
-    # environment = wrappers.SinglePrecisionWrapper(environment)
-    # environment_spec = specs.make_environment_spec(environment)
-    #
-    # act_spec = environment_spec.actions
-    # obs_spec = environment_spec.observations
     DQN_network = DQNnetwork(environment_grid.action_space, environment_grid.observation_space)
+    # 根据电网环境创建网络
     policy_network = DQN_network.make_networks(placement=args["learner_device_placement"],
                                                policy_layer_sizes=model_sizes)["policy"]
     observation_spec=DQN_network.observation_size
@@ -189,7 +129,7 @@ def actor_main(actor_id, args):
             lambda q: trfl.epsilon_greedy(q, epsilon=epsilon).sample(),
         ])
 
-        # Set up actor
+        # 配置adder
         adder = adders.NStepTransitionAdder(
             priority_fns={args["replay_table_name"]: lambda x: 1.},
             client=client,
@@ -200,10 +140,10 @@ def actor_main(actor_id, args):
         variable_client = tf2_variable_utils.VariableClient(
             variable_source, {'policy': policy_network.variables}, update_period=args["actor_update_period"])
 
-        # Create Feed actor
+        # 创建FeedActor
         actor = actors.FeedForwardActor(behavior_network, adder=adder, variable_client=variable_client)
 
-        # Create pytorch actor
+        # 创建pytorch actor
         pytorch_adder = adders.NStepTransitionAdder(
             priority_fns={args["replay_table_name"]: lambda x: 1.},
             client=client,
@@ -239,6 +179,7 @@ def actor_main(actor_id, args):
         observation = convert_obs(timestep)
         episode_return = 0
         done=False
+        # 将experience写入table中
         actor._adder._writer.append(dict(observation=observation,
                              start_of_episode=True),
                         partial_step=True)
@@ -250,15 +191,14 @@ def actor_main(actor_id, args):
             local_steps += 1
             tstart = time.time()
 
-            # Generate an action from the agent's policy and step the environment.
+            # 根据actor模型选取action
             with tf.device(actor_device_placement):
                 action = actor.select_action(observation)
             action_con=DQN_network.convert_act(action)
             new_obs, reward, done, info = environment_grid.step(action_con)
             new_obs_con=convert_obs(new_obs)
-            print(reward)
-            print(action)
             # print(new_obs_con)
+            # 将experience写入table中
             if actor._adder._writer.episode_steps >= actor._adder.n_step:
                 actor._adder._first_idx += 1
             actor._adder._last_idx += 1
@@ -278,17 +218,11 @@ def actor_main(actor_id, args):
                     start_of_episode=False),
                 partial_step=True)
             actor._adder._write()
-            # print(list(client.sample('priority_table', num_samples=1)))
-            # print(1)
             if done:
-                # Complete the row by appending zeros to remaining open fields.
-                # TODO(b/183945808): remove this when fields are no longer expected to be
-                # of equal length on the learner side.
                 dummy_step = tree.map_structure(np.zeros_like, current_step)
                 actor._adder._writer.append(dummy_step)
                 actor._adder._write_last()
                 actor._adder.reset()
-            # actor.observe(action, next_timestep=timestep)
 
             episode_return +=reward
             n_total_steps += 1

@@ -1,54 +1,22 @@
-import gc
 import os
-
-import grid2op
-
-from absl import app
-from absl import flags
-from acme import specs
-from acme import types
-from acme import wrappers
 from acme.agents.tf import actors
-from acme.agents.tf import d4pg
-from acme.specs import EnvironmentSpec
-from acme.tf import networks
 from acme.tf import utils as tf2_utils
 from acme.utils import loggers
 from grid2op import make
-from grid2op.Action import TopologyChangeAndDispatchAction, PlayableAction
-from grid2op.Reward import GameplayReward, L2RPNReward, CombinedScaledReward
-from l2rpn_baselines.PPO_SB3 import remove_non_usable_attr
+from grid2op.Action import PlayableAction
+from grid2op.Reward import GameplayReward, L2RPNReward
 from lightsim2grid import LightSimBackend
 from matplotlib import pyplot as plt
 import pandas as pd
-from dm_control import suite
-from d4pg_args import parser
+from dqn_args import parser
 from dqn_learner import DQN_learner
-from multiprocessing import Process
-from typing import Mapping, Sequence
-import acme
-import argparse
-import dm_env
-import gym
-import numpy as np
-import reverb
 import sonnet as snt
 import sys
-from grid2op.gym_compat import GymEnv, BoxGymObsSpace, BoxGymActSpace, DiscreteActSpace
 import tensorflow as tf
 from concurrent import futures
-import time
 import trfl
 from custom_environment_loop import CustomEnvironmentLoop
-import zlib
-import pickle
-from multiprocessing import Pool
-from multiprocessing.pool import ThreadPool
-import torch
-import zstd
-import msgpack
-import signal, psutil
-from utils import make_environment, DQNnetwork
+from utils import  DQNnetwork
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
@@ -131,11 +99,11 @@ class CustomReward:
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    from MyEnv import MyEnv
 
     print(vars(args))
     train_env_name = args.taskstr + "_train"
     val_env_name = args.taskstr + "_val"
+    # 创建电网环境
     environment_grid = make(train_env_name,
                             action_class=PlayableAction,
                             reward_class=CustomReward,
@@ -159,26 +127,7 @@ if __name__ == "__main__":
     cr.initialize(environment_grid)
     # Set reward range to something managable
     cr.set_range(-1.0, 1.0)
-    # environment = GymEnv(environment_grid)
-    # glop_obs = environment_grid.reset()
-    # environment.observation_space.close()
-    # obs_attr_to_keep = ["day_of_week", "hour_of_day", "minute_of_hour", "prod_p", "prod_v", "load_p", "load_q",
-    #                             "actual_dispatch", "target_dispatch", "topo_vect", "time_before_cooldown_line",
-    #                             "time_before_cooldown_sub", "rho", "timestep_overflow", "line_status",
-    #                             "storage_power", "storage_charge"]
-    # environment.observation_space=BoxGymObsSpace(environment.init_env.observation_space,
-    #                                       attr_to_keep=obs_attr_to_keep
-    #                                      )
-    # environment.action_space.close()
-    # default_act_attr_to_keep = ["redispatch", "curtail", "set_storage"]
-    # act_attr_to_keep = remove_non_usable_attr(environment_grid, default_act_attr_to_keep)
-    # environment.action_space= BoxGymActSpace(environment.init_env.action_space,
-    #                                  attr_to_keep=act_attr_to_keep
-    #                                 )
-    # # myenv=MyEnv(environment,environment_grid)
-    # environment = wrappers.GymWrapper(environment)
-    # environment = wrappers.SinglePrecisionWrapper(environment)
-    # environment_spec = specs.make_environment_spec(environment)
+
     model_sizes = tuple([int(x) for x in args.model_str.split(",")])
     DQN_network = DQNnetwork(environment_grid.action_space, environment_grid.observation_space)
     agent_networks = DQN_network.make_networks(placement=args.learner_device_placement,
@@ -237,9 +186,6 @@ if __name__ == "__main__":
     variable_broadcaster = PeriodicBroadcaster(submit_parameters_to_broadcaster)
     for i in range(args.num_episodes):
         with tf.device(args.learner_device_placement):
-            address = "localhost:%d" % args.port
-            client = reverb.Client(address)
-            # print(list(client.sample('priority_table', num_samples=1)))
             learner.learner.step()
             sys.stdout.flush()
             variable_broadcaster.update(None)
@@ -250,7 +196,6 @@ if __name__ == "__main__":
                 learner._checkpointer.save()
     learner._checkpointer.save()
     df = pd.DataFrame(logger.data)
-    print(df)
     plt.figure(figsize=(10, 4))
     plt.title('Training episodes returns')
     plt.xlabel('Training episodes')

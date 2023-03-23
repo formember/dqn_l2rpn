@@ -128,9 +128,6 @@ class CustomEnvironmentLoop(core.Worker):
                     partial_step=True)
                 self._actor._adder._write()
                 if done:
-                    # Complete the row by appending zeros to remaining open fields.
-                    # TODO(b/183945808): remove this when fields are no longer expected to be
-                    # of equal length on the learner side.
                     dummy_step = tree.map_structure(np.zeros_like, current_step)
                     self._actor._adder._writer.append(dummy_step)
                     self._actor._adder._write_last()
