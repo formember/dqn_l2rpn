@@ -3,11 +3,13 @@ from acme.agents.tf import actors
 from acme.tf import utils as tf2_utils
 from acme.utils import loggers
 from grid2op import make
-from grid2op.Action import PlayableAction
-from grid2op.Reward import GameplayReward, L2RPNReward
+from grid2op.Action import PlayableAction, TopologyChangeAndDispatchAction
+from grid2op.Reward import GameplayReward, L2RPNReward, CombinedScaledReward
 from lightsim2grid import LightSimBackend
 from matplotlib import pyplot as plt
 import pandas as pd
+
+from CustomReward import CustomReward
 from dqn_args import parser
 from dqn_learner import DQN_learner
 import sonnet as snt
@@ -93,22 +95,19 @@ class PeriodicBroadcaster(object):
             return
 
 
-class CustomReward:
-    pass
 
 
 if __name__ == "__main__":
     args = parser.parse_args()
 
     print(vars(args))
-    train_env_name = args.taskstr + "_train"
-    val_env_name = args.taskstr + "_val"
+    # train_env_name = args.taskstr + "_train"
+    # val_env_name = args.taskstr + "_val"
     # 创建电网环境
-    environment_grid = make(train_env_name,
-                            action_class=PlayableAction,
-                            reward_class=CustomReward,
-                            backend=LightSimBackend())
-    environment_grid_val = make(val_env_name,
+    environment_grid = make(args.taskstr,
+                            action_class=TopologyChangeAndDispatchAction,
+                            reward_class=CombinedScaledReward)
+    environment_grid_val = make(args.taskstr,
                                 backend=LightSimBackend())
     # Only load 128 steps in ram
     environment_grid.chronics_handler.set_chunk_size(128)
@@ -164,7 +163,7 @@ if __name__ == "__main__":
         ])
         eval_actor = actors.FeedForwardActor(policy_network=eval_policy)
     # eval_env = make_environment(args.taskstr)
-    eval_loop = CustomEnvironmentLoop(environment_grid_val, eval_actor, DQN_network,
+    eval_loop = CustomEnvironmentLoop(environment_grid, eval_actor, DQN_network,
                                       label="/home/dps/桌面/QuaRL-master/actorQ/dqn_l2rpn/dbg_logdir/environment_loop")
 
 
@@ -184,13 +183,14 @@ if __name__ == "__main__":
     broadcast_shutdown(0)
 
     variable_broadcaster = PeriodicBroadcaster(submit_parameters_to_broadcaster)
+    # variable_broadcaster.update(None)
     for i in range(args.num_episodes):
         with tf.device(args.learner_device_placement):
             learner.learner.step()
             sys.stdout.flush()
             variable_broadcaster.update(None)
 
-            if i % 1000 == 0:
+            if (i + 1) % 1000 == 0:
                 eval_loop.run(num_episodes=1)
             if (i + 1) % 10000 == 0:
                 learner._checkpointer.save()

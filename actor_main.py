@@ -192,8 +192,11 @@ def actor_main(actor_id, args):
             tstart = time.time()
 
             # 根据actor模型选取action
-            with tf.device(actor_device_placement):
-                action = actor.select_action(observation)
+            if n_total_steps<args["pre_step"]:
+                action=np.random.randint(0,action_spec)
+            else:
+                with tf.device(actor_device_placement):
+                    action = actor.select_action(observation)
             action_con=DQN_network.convert_act(action)
             new_obs, reward, done, info = environment_grid.step(action_con)
             new_obs_con=convert_obs(new_obs)
@@ -204,7 +207,7 @@ def actor_main(actor_id, args):
             actor._adder._last_idx += 1
             current_step = dict(
                 # Observation was passed at the previous add call.
-                action=action.astype(np.int32),
+                action=np.int32(action),
                 reward=reward,
                 discount=np.float32(1.0),
                 **{}

@@ -63,7 +63,7 @@ def Q_compress(W, n):
     if n >= 32:
         return W
     assert (len(W.shape) <= 2)
-    range = np.abs(np.min(W)) + np.abs(np.max(W))
+    range = np.max(W)-np.min(W)
     d = range / (2 ** (n - 1))
     if d == 0:
         return W
@@ -221,7 +221,7 @@ class DQNnetwork(AgentWithConverter):
 
             # Create the shared observation network; here simply a state-less operation.
             observation_network = tf2_utils.batch_concat
-
+            # policy_layer_sizes=(self.observation_size*2,self.observation_size,896,512)
             # Create the policy network.
             uniform_initializer = tf.initializers.VarianceScaling(
                 distribution='uniform', mode='fan_out', scale=0.333)
@@ -229,8 +229,8 @@ class DQNnetwork(AgentWithConverter):
                 snt.nets.MLP(
                     policy_layer_sizes,
                     w_init=uniform_initializer,
-                    activation=tf.nn.tanh,
-                    activate_final=False
+                    activation=tf.nn.relu,
+                    activate_final=True
                 )])
             policy_network = snt.Sequential([
                 network,

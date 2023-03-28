@@ -94,10 +94,10 @@ class CustomEnvironmentLoop(core.Worker):
             timestep = self._environment.reset()
             observation = convert_obs(timestep)
             # Make the first observation.
-            self._actor._adder._writer.append(dict(observation=observation,
-                                                   start_of_episode=True),
-                                              partial_step=True)
-            self._actor._adder._writer._add_first_called = True
+            # self._actor._adder._writer.append(dict(observation=observation,
+            #                                        start_of_episode=True),
+            #                                   partial_step=True)
+            # self._actor._adder._writer._add_first_called = True
 
             # Run an episode.
             while not done:
@@ -108,31 +108,31 @@ class CustomEnvironmentLoop(core.Worker):
                 new_obs_con = convert_obs(new_obs)
 
                 # Have the agent observe the timestep and let the actor update itself.
-                if self._actor._adder._writer.episode_steps >= self._actor._adder.n_step:
-                    self._actor._adder._first_idx += 1
-                self._actor._adder._last_idx += 1
-                current_step = dict(
-                    # Observation was passed at the previous add call.
-                    action=action,
-                    reward=reward,
-                    discount=np.float32(1.0),
-                    **{}
-                )
-                self._actor._adder._writer.append(current_step)
-                # Have the agent observe the timestep and let the actor update itself.
-
-                self._actor._adder._writer.append(
-                    dict(
-                        observation=new_obs_con,
-                        start_of_episode=False),
-                    partial_step=True)
-                self._actor._adder._write()
-                if done:
-                    dummy_step = tree.map_structure(np.zeros_like, current_step)
-                    self._actor._adder._writer.append(dummy_step)
-                    self._actor._adder._write_last()
-                    self._actor._adder.reset()
-                self._actor.update()
+                # if self._actor._adder._writer.episode_steps >= self._actor._adder.n_step:
+                #     self._actor._adder._first_idx += 1
+                # self._actor._adder._last_idx += 1
+                # current_step = dict(
+                #     # Observation was passed at the previous add call.
+                #     action=action,
+                #     reward=reward,
+                #     discount=np.float32(1.0),
+                #     **{}
+                # )
+                # self._actor._adder._writer.append(current_step)
+                # # Have the agent observe the timestep and let the actor update itself.
+                #
+                # self._actor._adder._writer.append(
+                #     dict(
+                #         observation=new_obs_con,
+                #         start_of_episode=False),
+                #     partial_step=True)
+                # self._actor._adder._write()
+                # if done:
+                #     dummy_step = tree.map_structure(np.zeros_like, current_step)
+                #     self._actor._adder._writer.append(dummy_step)
+                #     self._actor._adder._write_last()
+                #     self._actor._adder.reset()
+                # self._actor.update()
 
                 # Book-keeping.
                 episode_steps += 1

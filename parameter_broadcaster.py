@@ -86,9 +86,9 @@ if __name__ == "__main__":
 
         # State dict
         state_dict = quantized_actor.state_dict()
-        if args.weight_compress != 0:
-            for k,v in state_dict.items():
-                state_dict[k] = Q_compress(state_dict[k], args.weight_compress)
+        # if args.weight_compress != 0:
+        #     for k,v in state_dict.items():
+        #         state_dict[k] = Q_compress(state_dict[k], args.weight_compress)
         state_dict["id"] = id
 
         # Send over packed params to avoid overhead
