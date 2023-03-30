@@ -112,43 +112,6 @@ def Q_opt(W, n, intervals=100):
     print("Opted: %f->%f err" % (first_err, best_err))
     return best
 
-
-def make_environment(
-        taskstr, mode="train") -> dm_env.Environment:
-    """Creates an OpenAI Gym environment."""
-
-    # Load the gym environment.
-    module, task = taskstr.split(",")
-
-    if module == "gym":
-        if task == "MountainCar-v0" and mode == "train":
-            env = gym.envs.make(task)
-            env._max_episode_steps = 200
-            environment = wrappers.GymWrapper(env)
-        else:
-            environment = gym.make(task)
-            environment = wrappers.GymWrapper(environment)
-    elif module == "atari":
-        environment = gym.make(task, full_action_space=True)
-        environment = gym_wrapper.GymAtariAdapter(environment)
-        environment = atari_wrapper.AtariWrapper(environment, to_float=True, max_episode_len=5000,
-                                                 zero_discount_on_life_loss=True,
-                                                 )
-    elif module == "dm_control":
-        t1, t2 = task.split("_")
-        environment = suite.load(t1, t2)
-    elif module == "bsuite":
-        environment = bsuite.load_and_record_to_csv(
-            bsuite_id=task,
-            results_dir="./bsuite_results"
-        )
-
-    # Make sure the environment obeys the dm_env.Environment interface.
-    environment = wrappers.SinglePrecisionWrapper(environment)
-
-    return environment
-
-
 def input_size_from_obs_spec(env_spec):
     if hasattr(env_spec, "shape"):
         return int(np.prod(env_spec.shape))
@@ -220,7 +183,6 @@ class DQNnetwork(AgentWithConverter):
             num_dimensions = self.action_size
 
             # Create the shared observation network; here simply a state-less operation.
-            observation_network = tf2_utils.batch_concat
             # policy_layer_sizes=(self.observation_size*2,self.observation_size,896,512)
             # Create the policy network.
             uniform_initializer = tf.initializers.VarianceScaling(
@@ -239,18 +201,9 @@ class DQNnetwork(AgentWithConverter):
                 # tf.nn.max_pool_with_argmax
             ])
 
-            # Create the critic network.
-            critic_network = snt.Sequential([
-                # The multiplexer concatenates the observations/actions.
-                networks.CriticMultiplexer(),
-                networks.LayerNormMLP(critic_layer_sizes, activate_final=True),
-                networks.DiscreteValuedHead(vmin, vmax, num_atoms),
-            ])
 
             return {
                 'policy': policy_network,
-                'critic': critic_network,
-                'observation': observation_network,
             }
 
     def my_act(self, transformed_observation, reward, done=False):
